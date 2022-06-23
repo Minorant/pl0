@@ -44,6 +44,7 @@ void getsym() {
     while (ch == ' ' || ch == '\t') {
         getch();
     }
+    // state machine
     if (isalpha(ch)) {  // identified or reserved
         k = 0;
         do {
@@ -57,6 +58,7 @@ void getsym() {
             kk = k;
         } else {
             do {
+                // 加空格 (迷惑操作
                 kk = kk - 1;
                 a[kk] = ' ';
             } while (k < kk);
@@ -65,6 +67,7 @@ void getsym() {
         i = 0;
         j = norw - 1;
         do {
+            // 二分找保留字id？
             k = (i + j) / 2;
             if (strcmp(id, word[k]) <= 0) {
                 j = k - 1;
@@ -89,6 +92,23 @@ void getsym() {
         } while (isdigit(ch));
         if (k > nmax) {
             error(31);
+        }
+    } else if (ch == '/') {
+        getch();
+        if (ch == '*') {
+            while (1) {
+                getch();
+                if (ch == '*') {
+                    getch();
+                    if (ch == '/') {
+                        getch();
+                        getsym();
+                        break;
+                    }
+                }
+            }
+        } else {
+            sym = slash;
         }
     } else if (ch == ':') {
         getch();
@@ -166,7 +186,7 @@ void enter(enum object k) {  // enter object into table
             break;
     }
 }
-
+/* 查找标识符在名字表中的位置 */
 long position(char* id) {  // find identifier id in table
     long i;
 
@@ -182,17 +202,17 @@ void constdeclaration() {
     if (sym == ident) {
         getsym();
         if (sym == eql || sym == becomes) {
-            if (sym == becomes) {
+            if (sym == becomes) {  // const a :=  抛异常
                 error(1);
-            }
+            }  // const a =
             getsym();
-            if (sym == number) {
+            if (sym == number) {  // const a = 1
                 enter(constant);
                 getsym();
             } else {
                 error(2);
             }
-        } else {
+        } else {  // const a lkdmkmklsdmlk 抛异常
             error(3);
         }
     } else {
@@ -387,8 +407,17 @@ void statement(unsigned long fsys) {
         }
         cx1 = cx;
         gen(jpc, 0, 0);
-        statement(fsys);
-        code[cx1].a = cx;
+        statement(fsys|elsesym);
+        cx2 = cx;
+        gen(jmp, 0, 0);
+        getsym();
+        if (sym == elsesym) {
+            getsym();
+            statement(fsys);
+            code[cx1].a = cx2+1;
+        }
+        code[cx2].a = cx;
+
     } else if (sym == beginsym) {
         getsym();
         statement(fsys | semicolon | endsym);
@@ -420,6 +449,10 @@ void statement(unsigned long fsys) {
         gen(jmp, 0, cx1);
         code[cx2].a = cx;
     }
+    else if (sym == exitsym) {
+        gen(opr, 0, 0);
+        getsym();
+    }
     test(fsys, 0, 19);
 }
 
@@ -442,6 +475,7 @@ void block(unsigned long fsys) {
             do {
                 constdeclaration();
                 while (sym == comma) {
+                    // 处理 形如 const a = 1,b = 2;
                     getsym();
                     constdeclaration();
                 }
@@ -453,6 +487,7 @@ void block(unsigned long fsys) {
             } while (sym == ident);
         }
         if (sym == varsym) {
+            // 和const 的处理一样
             getsym();
             do {
                 vardeclaration();
@@ -623,32 +658,46 @@ void interpret() {
 }
 
 main() {
+    printf("%d\n", sizeof(long));
+
     long i;
     for (i = 0; i < 256; i++) {
         ssym[i] = nul;
     }
+    // 给word数组 赋 关键字 (字典序 为了后面可以二分找)
     strcpy(word[0], "begin     ");
     strcpy(word[1], "call      ");
     strcpy(word[2], "const     ");
     strcpy(word[3], "do        ");
-    strcpy(word[4], "end       ");
-    strcpy(word[5], "if        ");
-    strcpy(word[6], "odd       ");
-    strcpy(word[7], "procedure ");
-    strcpy(word[8], "then      ");
-    strcpy(word[9], "var       ");
-    strcpy(word[10], "while     ");
+    strcpy(word[4], "else      ");
+    strcpy(word[5], "end       ");
+    strcpy(word[6], "exit      ");
+    strcpy(word[7], "if        ");
+    strcpy(word[8], "odd       ");
+    strcpy(word[9], "procedure ");
+    strcpy(word[10], "read      ");
+    strcpy(word[11], "then      ");
+    strcpy(word[12], "var       ");
+    strcpy(word[13], "while     ");
+    strcpy(word[14], "write     ");
+
+    // 顺序同上
     wsym[0] = beginsym;
     wsym[1] = callsym;
     wsym[2] = constsym;
     wsym[3] = dosym;
-    wsym[4] = endsym;
-    wsym[5] = ifsym;
-    wsym[6] = oddsym;
-    wsym[7] = procsym;
-    wsym[8] = thensym;
-    wsym[9] = varsym;
-    wsym[10] = whilesym;
+    wsym[4] = elsesym;
+    wsym[5] = endsym;
+    wsym[6] = exitsym;
+    wsym[7] = ifsym;
+    wsym[8] = oddsym;
+    wsym[9] = procsym;
+    wsym[10] = readsym;
+    wsym[11] = thensym;
+    wsym[12] = varsym;
+    wsym[13] = whilesym;
+    wsym[14] = writesym;
+
     ssym['+'] = plus;
     ssym['-'] = minus;
     ssym['*'] = times;
@@ -659,6 +708,7 @@ main() {
     ssym[','] = comma;
     ssym['.'] = period;
     ssym[';'] = semicolon;
+    // 伪汇编指令
     strcpy(mnemonic[lit], "lit");
     strcpy(mnemonic[opr], "opr");
     strcpy(mnemonic[lod], "lod");
@@ -667,12 +717,13 @@ main() {
     strcpy(mnemonic[Int], "int");
     strcpy(mnemonic[jmp], "jmp");
     strcpy(mnemonic[jpc], "jpc");
-    declbegsys = constsym | varsym | procsym;
-    statbegsys = beginsym | callsym | ifsym | whilesym;
-    facbegsys = ident | number | lparen;
+    declbegsys = constsym | varsym | procsym;            // 声明
+    statbegsys = beginsym | callsym | ifsym | whilesym;  // 状态
+    facbegsys = ident | number | lparen;                 // 因子？
 
     printf("please input source program file name: ");
-    scanf("%s", infilename);
+    // scanf("%s", infilename);
+    strcpy(infilename, "multiply.pl0");
     printf("\n");
     if ((infile = fopen(infilename, "r")) == NULL) {
         printf("File %s can't be opened.\n", infilename);
